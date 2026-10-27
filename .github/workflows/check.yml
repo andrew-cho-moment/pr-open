@@ -1,0 +1,28 @@
+name: Check Changes
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref so rapid pushes don't pile up build minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vscode-extension
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.23.4"
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+      - run: npm ci
+      - run: npm run compile
+      - run: npm test

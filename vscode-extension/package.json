@@ -1,0 +1,267 @@
+{
+  "name": "pr-open",
+  "displayName": "PR Open",
+  "description": "Open any GitHub PR in its local clone and hand off to the GitHub Pull Requests extension for native review + inline commenting.",
+  "version": "0.0.0-dev",
+  "publisher": "andrewcho",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/andrew-cho-moment/pr-open"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other",
+    "SCM Providers"
+  ],
+  "extensionDependencies": [
+    "GitHub.vscode-pull-request-github"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onUri",
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "PR Open",
+      "properties": {
+        "prOpen.searchRoots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "markdownDescription": "Absolute directories to scan for local clones (e.g. `~/dev`). A PR for `owner/repo` resolves to `<root>/<repo>`. Required; each entry must be an existing directory. `~` is expanded to your home directory."
+        },
+        "prOpen.cloneRoot": {
+          "type": "string",
+          "markdownDescription": "Which of `#prOpen.searchRoots#` to clone missing repos into. If unset, the first search root is used."
+        },
+        "prOpen.review.model": {
+          "type": "string",
+          "markdownDescription": "Model passed to `claude --model` when generating a guided review (e.g. `claude-opus-4-8`). If unset, defaults to `sonnet`. Must be a non-empty string when set."
+        },
+        "prOpen.ask.model": {
+          "type": "string",
+          "markdownDescription": "Model passed to `claude --model` when answering a question about lines of the diff (e.g. `claude-opus-4-8`). If unset, defaults to `sonnet`. Must be a non-empty string when set."
+        },
+        "prOpen.address.model": {
+          "type": "string",
+          "markdownDescription": "Model passed to `claude --model` when addressing the checked-out PR's review comments (e.g. `claude-opus-4-8`). If unset, defaults to `sonnet`. Must be a non-empty string when set."
+        },
+        "prOpen.adversarialReview.model": {
+          "type": "string",
+          "markdownDescription": "Model passed to `claude --model` when running an adversarial review of the PR (e.g. `claude-opus-5`). If unset, defaults to `fable`. Must be a non-empty string when set."
+        },
+        "prOpen.adversarialReview.standardsSection": {
+          "type": "string",
+          "default": "Design",
+          "markdownDescription": "Which section of your `~/.claude/CLAUDE.md` the adversarial review judges a design finding against. Code that breaks one of its rules is reportable; the section changes nothing about what counts as a correctness or style finding. When your file has neither this section nor `#prOpen.adversarialReview.instructionsSection#`, the whole file serves both jobs. Set to an empty string to always append the whole file."
+        },
+        "prOpen.adversarialReview.instructionsSection": {
+          "type": "string",
+          "default": "Communication",
+          "markdownDescription": "Which section of your `~/.claude/CLAUDE.md` is appended to the adversarial review's prompt, for the voice of a finding. When no section with this name exists, the review takes whatever `#prOpen.adversarialReview.standardsSection#` did not already claim, so the two never restate each other. Set to an empty string to always append the whole file."
+        },
+        "prOpen.review.includeBusinessContext": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show a two-sentence summary of the concrete problem and resolution above the guided review."
+        },
+        "prOpen.logTimings": {
+          "type": "boolean",
+          "markdownDescription": "Log a per-phase breakdown of each action (PR page, Diff, Checkout) to the `PR Open` output channel, alongside the total that is always logged. Costs process-wide async context tracking in the extension host, so leave it unset unless you are measuring."
+        },
+        "prOpen.checkForUpdatesOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Check GitHub for a newer PR Open release on startup (at most once a day) and offer a one-click install when one is available. Turn off to only check via `PR Open: Check for Updates`."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "prOpen",
+          "title": "PR Open",
+          "icon": "media/pr.svg"
+        }
+      ]
+    },
+    "views": {
+      "prOpen": [
+        {
+          "type": "webview",
+          "id": "prOpen.panel",
+          "name": "PR Open"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "prOpen.openByUrl",
+        "title": "PR Open: Open Pull Request by URL",
+        "category": "PR Open"
+      },
+      {
+        "command": "prOpen.openByRepoNumber",
+        "title": "PR Open: Open Pull Request by Repo + Number",
+        "category": "PR Open"
+      },
+      {
+        "command": "prOpen.rescanRepos",
+        "title": "Rescan local clones",
+        "category": "PR Open",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "prOpen.openSettings",
+        "title": "Open PR Open settings",
+        "category": "PR Open",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "prOpen.showLog",
+        "title": "Show log (with per-action timings)",
+        "category": "PR Open"
+      },
+      {
+        "command": "prOpen.startReview",
+        "title": "PR Open: Start Guided Review",
+        "category": "PR Open"
+      },
+      {
+        "command": "prOpen.ask.selection",
+        "title": "PR Open: Ask Claude About These Lines",
+        "category": "PR Open"
+      },
+      {
+        "command": "prOpen.ask.atLine",
+        "title": "PR Open: Ask Claude About This Line",
+        "category": "PR Open"
+      },
+      {
+        "command": "prOpen.ask.fromThread",
+        "title": "Ask Claude",
+        "category": "PR Open"
+      },
+      {
+        "command": "prOpen.ask.submit",
+        "title": "Ask Claude",
+        "category": "PR Open"
+      },
+      {
+        "command": "prOpen.ask.cancel",
+        "title": "Stop",
+        "category": "PR Open",
+        "icon": "$(stop-circle)"
+      },
+      {
+        "command": "prOpen.ask.delete",
+        "title": "Delete Question",
+        "category": "PR Open",
+        "icon": "$(trash)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "prOpen.ask.selection",
+        "key": "ctrl+alt+/",
+        "mac": "cmd+alt+/",
+        "when": "editorTextFocus && prOpen.ask.canAsk"
+      }
+    ],
+    "menus": {
+      "comments/commentThread/context": [
+        {
+          "command": "prOpen.ask.submit",
+          "group": "inline",
+          "when": "commentController == prOpen.ask"
+        },
+        {
+          "command": "prOpen.ask.fromThread",
+          "group": "inline@9",
+          "when": "commentController =~ /^github-(browse|review)/ && prOpen.ask.canAsk"
+        }
+      ],
+      "editor/lineNumber/context": [
+        {
+          "command": "prOpen.ask.atLine",
+          "group": "navigation",
+          "when": "prOpen.ask.canAsk"
+        }
+      ],
+      "comments/commentThread/title": [
+        {
+          "command": "prOpen.ask.cancel",
+          "group": "inline@0",
+          "when": "commentController == prOpen.ask && commentThread == prOpenAsk.busy"
+        },
+        {
+          "command": "prOpen.ask.delete",
+          "group": "inline@1",
+          "when": "commentController == prOpen.ask && commentThread =~ /^prOpenAsk\\./"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "prOpen.ask.selection",
+          "group": "1_modification@0",
+          "when": "prOpen.ask.canAsk"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "prOpen.rescanRepos",
+          "when": "view == prOpen.panel",
+          "group": "navigation@0"
+        },
+        {
+          "command": "prOpen.openSettings",
+          "when": "view == prOpen.panel",
+          "group": "navigation@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "prOpen.ask.atLine",
+          "when": "false"
+        },
+        {
+          "command": "prOpen.ask.fromThread",
+          "when": "false"
+        },
+        {
+          "command": "prOpen.ask.submit",
+          "when": "false"
+        },
+        {
+          "command": "prOpen.ask.cancel",
+          "when": "false"
+        },
+        {
+          "command": "prOpen.ask.delete",
+          "when": "false"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "node --import tsx --test test/*.test.ts",
+    "test:integration": "npm run compile && node test/integration/launch.js",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/codicons": "^0.0.45",
+    "@vscode/test-electron": "^3.1.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.5.0"
+  }
+}

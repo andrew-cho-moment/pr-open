@@ -1,0 +1,33 @@
+/*---------------------------------------------------------------------------------------------
+ *  Codicons (c) Microsoft Corporation, MIT License. Vendored subset: only the glyphs this
+ *  webview uses. Font file (codicon.ttf) is the unmodified upstream @vscode/codicons build.
+ *--------------------------------------------------------------------------------------------*/
+
+@font-face {
+  font-family: "codicon";
+  font-display: block;
+  src: url("./codicon.ttf") format("truetype");
+}
+
+.codicon[class*='codicon-'] {
+  font: normal normal normal 16px/1 codicon;
+  display: inline-block;
+  text-decoration: none;
+  text-rendering: auto;
+  text-align: center;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.codicon-copy:before { content: "\ebcc"; }
+.codicon-check:before { content: "\eab2"; }
+.codicon-fold-up:before { content: "\eaf4"; }
+.codicon-fold-down:before { content: "\eaf3"; }
+.codicon-refresh:before { content: "\eb37"; }
+.codicon-arrow-circle-down:before { content: "\ebfc"; }
+.codicon-chevron-right:before { content: "\eab6"; }
+.codicon-chevron-down:before { content: "\eab4"; }
+.codicon-clear-all:before { content: "\eabf"; }
+.codicon-stop-circle:before { content: "\eba5"; }

@@ -1,0 +1,100 @@
+name: Release
+on: # yamllint disable-line rule:truthy
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or commit to build the release from
+        default: main
+        required: false
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+# Serialize releases so two runs can't race on the same computed version/tag.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Determine version
+        id: version
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        shell: python {0}
+        run: |
+          import os
+          import subprocess
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+
+          if os.environ["GITHUB_EVENT_NAME"] == "push":
+              # Tag push: the tag name is the version.
+              version = os.environ["GITHUB_REF_NAME"]
+          else:
+              # Manual dispatch: bump the CalVer micro past every existing YYYY.M tag.
+              now = datetime.now(ZoneInfo("America/New_York"))
+              prefix = f"{now.year}.{now.month}"
+              tags = subprocess.run(
+                  ["git", "tag", "--list", f"{prefix}.*"],
+                  capture_output=True,
+                  text=True,
+                  check=True,
+              ).stdout.split()
+              micro = 0
+              for tag in tags:
+                  parts = tag.split(".")
+                  if len(parts) == 3 and parts[2].isdigit():
+                      micro = max(micro, int(parts[2]))
+              version = f"{prefix}.{micro + 1}"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"version={version}\n")
+          print(f"Release version: {version}")
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22.23.4"
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Build and package VSIX
+        working-directory: vscode-extension
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          npm ci
+          npm test
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          npx --yes @vscode/vsce package --out "pr-open-$VERSION.vsix"
+
+      # Create the release as a draft WITH the VSIX attached, then publish. Immutable
+      # releases lock assets at publish time, so the binary must land before the flip —
+      # this ordering is what makes the release immutable-safe (no post-publish clobber).
+      - name: Publish release with VSIX
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          target="$(git rev-parse HEAD)"
+          gh release create "$VERSION" \
+            "vscode-extension/pr-open-$VERSION.vsix" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$target" \
+            --title "$VERSION" \
+            --generate-notes \
+            --draft
+          gh release edit "$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false

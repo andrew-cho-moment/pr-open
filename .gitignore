@@ -1,0 +1,9 @@
+node_modules/
+dist/
+# The VS Code build `npm run test:integration` downloads to run the extension host against.
+.vscode-test/
+*.vsix
+web-ext-artifacts/
+.DS_Store
+
+*.swp

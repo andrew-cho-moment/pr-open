@@ -1,0 +1,293 @@
+html, body { height: 100%; }
+/* Hide the scrollbar on every scroll surface; `overflow-y: auto` still scrolls. */
+html, body, #panelScroll, #askList, #addressList { scrollbar-width: none; }
+html::-webkit-scrollbar, body::-webkit-scrollbar, #panelScroll::-webkit-scrollbar,
+#askList::-webkit-scrollbar, #addressList::-webkit-scrollbar { display: none; }
+/* `margin: 0` restates what VS Code's injected default already sets: `overflow: hidden` below makes a
+   stray margin unrecoverable rather than scrollable, so this file owns the box it clips. */
+body { margin: 0; padding: 10px 8px; font-family: var(--vscode-font-family); display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; }
+/* The one scroll surface. Its overflow clips whatever grows, so review text can never reach the
+   ask dock below it. */
+#panelScroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+label { display: block; font-size: 11px; text-transform: uppercase; opacity: 0.75; margin: 7px 0 2px; }
+input#url + label { margin-top: 4px; }
+input, select { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 13px; }
+input, select {
+  padding: 5px 6px; margin-bottom: 6px;
+  color: var(--vscode-input-foreground); background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent); border-radius: 2px;
+}
+button {
+  flex: 1; padding: 6px; cursor: pointer; border: none; border-radius: 2px; font-size: 13px;
+  color: var(--vscode-button-foreground); background: var(--vscode-button-background);
+}
+button.secondary {
+  color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground);
+}
+button:hover { background: var(--vscode-button-hoverBackground); }
+button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.actions { display: flex; gap: 6px; margin-bottom: 4px; }
+.repo-row { display: flex; gap: 6px; }
+.repo-row .combo { flex: 1; }
+.repo-row #num { flex: 0 0 auto; width: 72px; }
+/* Suggestion dropdown: anchored to its input, floating over whatever follows. The input goes
+   block-level and hands its bottom margin to the wrapper, so top:100% lands flush under it. */
+.combo { position: relative; margin-bottom: 6px; }
+.combo input { display: block; margin-bottom: 0; }
+.combo-list {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 10;
+  margin: 0; padding: 2px; list-style: none;
+  max-height: 180px; overflow-y: auto;
+  font-size: 13px; border-radius: 2px;
+  background: var(--vscode-editorWidget-background, var(--vscode-input-background));
+  border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.3));
+}
+.combo-list li { padding: 3px 5px; cursor: pointer; border-radius: 2px; }
+/* No :hover rule: hovering moves aria-selected, so this is the one highlight either input drives. */
+.combo-list li[aria-selected="true"] {
+  background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground);
+}
+hr { border: none; border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.3)); margin: 10px 0; }
+.err { color: var(--vscode-errorForeground); font-size: 12px; margin-top: 8px; }
+/* Reserve no vertical space when there's no error to show. */
+.err:empty { margin: 0; }
+/* A `basename:lines` label. The two boxes panel.js builds are what elide it, and the shrink factors
+   are the order they give way in: the stem's 1000 against the tail's 1 means the name is gone before
+   `.sql:1-41` gives up a character, so the line range is the last thing a narrowing panel takes. Both
+   ellipsize, since a range cut without a mark reads as a shorter range that is simply wrong. Each site
+   below hands the label a width to shrink into: a shrinkable flex item, or a block of its own. */
+.loc { display: flex; min-width: 0; overflow: hidden; }
+.loc-stem { flex-shrink: 1000; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.loc-tail { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#tourContext {
+  font-size: 13px; line-height: 1.5; margin-bottom: 8px; border-radius: 4px;
+  border-left: 3px solid var(--vscode-textLink-foreground);
+  background: var(--vscode-editorWidget-background, rgba(128,128,128,0.12));
+}
+/* Scrolls at a third of the panel rather than growing: the model is asked for two sentences and
+   nothing clamps its answer, so a summary that restates the PR body must not push the walkthrough
+   off-screen. */
+#tourContextBody { padding: 6px 8px; white-space: pre-wrap; max-height: 33vh; overflow-y: auto; }
+/* The review's heading, status line and step controls stay put while the explanation below scrolls.
+   Opaque, with a rule along the bottom, so text passing underneath reads as passing under a toolbar. */
+/* z-index is load-bearing, not defensive: #tourExpl's `opacity` below makes it a stacking context of
+   its own, and being later in the DOM it would otherwise paint straight over the pinned controls.
+   Stays under #askSection's 2, so the dock still wins. */
+#tourPinned {
+  position: sticky; top: 0; z-index: 1; padding-bottom: 2px;
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.3));
+}
+#tourHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#tourHeadActions { display: flex; align-items: center; gap: 10px; }
+#tourContextToggle {
+  cursor: pointer; color: var(--vscode-textLink-foreground);
+  font-size: 12px; line-height: 1; opacity: 0.75; user-select: none;
+}
+#tourContextToggle:hover, #tourContextToggle.active { opacity: 1; }
+#focusToggle {
+  cursor: pointer; color: var(--vscode-textLink-foreground);
+  font-size: 14px; line-height: 1; opacity: 0.75; flex: 0 0 auto;
+}
+#focusToggle:hover { opacity: 1; }
+#tourStep { font-size: 14px; }
+#tourTitle { font-size: 15px; }
+#tourLocs { font-size: 14px; }
+/* `display` is .loc's to set, and being a flex container is block-level anyway, so each location
+   still takes its own line. Spelling `display: block` here would outrank .loc's flex on
+   specificity and leave the stem with nothing to shrink inside. */
+#tourLocs a { margin: 2px 0; }
+#tourExpl { font-size: 14px; opacity: 0.9; white-space: pre-wrap; }
+#tourSteps { margin-top: 10px; list-style: none; padding: 0; }
+#tourSteps li { padding: 4px 4px; font-size: 14px; cursor: pointer; border-radius: 2px; }
+#tourSteps li:hover { background: var(--vscode-list-hoverBackground); }
+#tourSteps li.active { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+#tourSteps .badge, #tourStep .badge { opacity: 0.7; margin-right: 6px; font-variant: small-caps; }
+/* flow-root, not flex: a flex row makes the text a column of its own, so a wrapped PR title stops
+   at the icons' left edge and leaves the space under them empty. As a block containing a float, the
+   text wraps beside the icons and then reclaims the full width. flow-root rather than
+   `overflow: hidden` contains the float without clipping the icons' hover tooltip below the row. */
+#status {
+  position: relative;
+  display: flow-root; font-size: 12px;
+  padding: 6px 8px; margin-bottom: 6px; border-radius: 4px;
+  background: var(--vscode-editorWidget-background, rgba(128,128,128,0.12));
+  border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.25));
+  color: var(--vscode-foreground);
+}
+#statusText { line-height: 1.5; }
+#statusText b { font-weight: 600; }
+#statusText a { cursor: pointer; color: var(--vscode-textLink-foreground); }
+#statusActions { float: right; display: flex; align-items: center; gap: 10px; margin-left: 8px; }
+#statusActions a { cursor: pointer; color: var(--vscode-textLink-foreground); }
+#statusActions a[aria-disabled="true"] { cursor: default; }
+/* Fades the glyph alone. On the anchor, opacity would take the tooltip with it. */
+#statusActions a[aria-disabled="true"]::before { opacity: 0.4; }
+#statusActions .codicon { font-size: 14px; }
+/* Hover tooltip for the icon row, drawn from the accessible name so the two cannot drift. It hangs
+   off #status rather than the icon, so left:0/right:0 cap it at the row's width and the auto left
+   margin keeps it flush right: it can never leave the panel. The font and text-align resets undo
+   .codicon's `font: 16px/1 codicon` shorthand, whose family covers icon glyphs only. */
+#statusActions a[aria-label]:hover::after {
+  content: attr(aria-label);
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 20;
+  width: fit-content; margin: 4px 0 0 auto;
+  padding: 3px 7px; border-radius: 3px; pointer-events: none;
+  font-family: var(--vscode-font-family); font-size: 12px; line-height: 1.4; text-align: left;
+  color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-panel-border, rgba(128,128,128,0.25)));
+}
+#statusText .behind {
+  display: flex; align-items: center; gap: 8px; margin-top: 6px; clear: right;
+  color: var(--vscode-editorWarning-foreground);
+}
+#statusText .behind .pull {
+  flex: 0 0 auto; padding: 2px 10px; cursor: pointer; border: none; border-radius: 2px; font-size: 12px;
+  color: var(--vscode-button-foreground); background: var(--vscode-button-background);
+}
+#statusText .behind .pull:hover { background: var(--vscode-button-hoverBackground); }
+
+/* --- Ask Claude ---------------------------------------------------------------------------- */
+/* Docked to the bottom. #panelScroll's overflow is what keeps review text out of here; the opaque
+   background is belt-and-braces for anything that ever escapes that clip. */
+#askSection {
+  display: flex; flex-direction: column; flex: 0 0 auto;
+  position: relative; z-index: 2; margin-top: 8px;
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+/* The dock has no height of its own: it is the sum of its transcript, its compose box and its chrome,
+   so either grip resizes it by resizing what it holds. This is the one ceiling on that sum, and it
+   holds after the window shrinks under a stored height. Each child caps itself, so neither grip can
+   raise a ceiling the reviewer did not reach for. */
+#askSection.open { max-height: 80%; }
+#askSection:not(.open) #askBody { display: none; }
+/* One rule for both grips: the dock's divider and the compose box's top edge are the same bar and the
+   same gesture at two scales, so they are the same declarations by construction. #askResize spans the
+   body padding, making the whole panel width a grab target. */
+#askResize, #askComposeResize {
+  flex: 0 0 auto; height: 5px; margin: 0 -8px 6px; cursor: ns-resize;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.3));
+}
+/* The border is the affordance, so it doubles as the focus ring: an outline on a 5px bar reads as a
+   stray line. */
+#askResize:hover, #askResize:focus-visible,
+#askComposeResize:hover, #askComposeResize:focus-visible { outline: none; border-top-color: var(--vscode-sash-hoverBorder, var(--vscode-focusBorder)); }
+#askResize:focus-visible, #askComposeResize:focus-visible { border-top-width: 2px; }
+/* Only the dock's divider stays visible when collapsed, and then it has no height to give. */
+#askSection:not(.open) #askResize { pointer-events: none; }
+#askHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#askToggle {
+  display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none;
+  font-size: 12px; text-transform: uppercase; opacity: 0.8; color: var(--vscode-foreground);
+}
+#askToggle:hover { opacity: 1; }
+#askChevron { font-size: 14px; }
+#askCount {
+  margin-left: 4px; padding: 0 5px; border-radius: 8px; font-size: 10px; line-height: 15px;
+  color: var(--vscode-badge-foreground); background: var(--vscode-badge-background);
+}
+#askCount:empty { display: none; }
+#askClear { cursor: pointer; font-size: 14px; opacity: 0.75; color: var(--vscode-textLink-foreground); }
+#askClear:hover { opacity: 1; }
+#askBody { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; margin-top: 6px; }
+/* Fixed by default, so a drag can never resolve itself by squashing the anchor line or the Ask button,
+   and a child added to #askBody later is inflexible until it says otherwise. The two rules below opt
+   the transcript and the compose box back in: they are the only items with any give. */
+#askBody > * { flex: 0 0 auto; }
+/* Where the dock's own grip puts its height, so the dock's total follows. The only child that grows, so
+   it takes any slack, and the only one that shrinks, so it is what gives when the dock meets its
+   ceiling - it scrolls, and the compose box below it cannot. Being the only one also keeps the dock's
+   grip stable: with two shrinkable children, writing back a height read while shrunk would change how
+   the shrink divides and the transcript would jump. Untouched it caps itself, so a transcript nobody
+   sized never crowds the explanation above the dock; its own grip clears that cap by marking it sized,
+   which is the reviewer asking for the room. */
+#askList { list-style: none; padding: 0; margin: 0 0 6px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+#askList:not(.sized) { max-height: 35vh; }
+#askList li { padding: 4px 2px; border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.2)); }
+#askList .q { display: flex; gap: 4px; align-items: baseline; cursor: pointer; font-size: 13px; }
+#askList li:hover .q { color: var(--vscode-textLink-foreground); }
+/* A row, so the location label is what gives when the row runs long and the streaming ellipsis after
+   it stays put. */
+#askList .ask-meta { display: flex; align-items: baseline; font-size: 12px; opacity: 0.75; margin: 2px 0 0 18px; }
+#askList .ask-meta a { cursor: pointer; color: var(--vscode-textLink-foreground); margin-right: 8px; }
+/* Likewise a row: the label shrinks so that "use current selection" keeps its whole width, that
+   being the part a reviewer has to read to know it is a link. */
+.ask-anchor { display: flex; align-items: baseline; font-size: 12px; color: var(--vscode-descriptionForeground); margin: 2px 0 4px; }
+.ask-anchor.empty { font-style: italic; }
+.ask-anchor a { flex: 0 0 auto; cursor: pointer; color: var(--vscode-textLink-foreground); margin-left: 6px; }
+/* Its own rule rather than joining `input, select`: it needs a taller box. `resize: none` because
+   #askComposeResize owns the height - a native corner grip writes an inline height the flex column
+   undoes, and it slides out from under the pointer as the box grows upward. */
+textarea {
+  width: 100%; box-sizing: border-box; resize: none; padding: 5px 6px; margin-bottom: 6px;
+  font-family: inherit; font-size: 13px; border-radius: 2px;
+  color: var(--vscode-input-foreground); background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+}
+/* The compose box's sizing contract, on the id rather than the element: it means nothing outside
+   #askBody's column. `flex: 0 0 auto` is what makes a dragged height hold - the box neither grows on
+   its own nor gives space back, so the transcript is the only child a squeeze can come out of, which is
+   right because it is the only one that scrolls. max-height is then the only thing keeping the Ask
+   button on screen, and 30vh leaves the dock's 80% ceiling room for a full box plus its chrome on any
+   panel over ~220px tall. min-height is the resting size, the two rows `rows="2"` renders at 13px, and
+   panel.js reads it back as its drag's floor. Deliberately px and not `calc(2lh + ...)`: `lh` needs
+   Chromium 133 and package.json declares VS Code ^1.90.0, whose Chromium drops the declaration - which
+   would make getComputedStyle report `auto` and the floor NaN. */
+#askInput {
+  flex: 0 0 auto; min-height: 42px; max-height: 30vh;
+}
+
+/* --- Address PR comments ------------------------------------------------------------------- */
+/* Sits above the transcript inside the dock. Inflexible, like every other child of #askBody bar the
+   transcript, so the transcript stays the only thing a squeeze comes out of and the dock's grip keeps
+   writing back a height that means what it measured. Which is why the list below caps itself well
+   under the compose box's 30vh: the two plus the dock's chrome have to leave the Ask button on screen
+   inside an 80%-tall dock on any panel, and a thread list is the one part that can grow without
+   bound. */
+#addressBox {
+  margin-bottom: 6px; padding: 4px 6px; border-radius: 4px;
+  background: var(--vscode-editorWidget-background, rgba(128,128,128,0.12));
+  border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.25));
+}
+#addressHead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+#addressStatus { font-size: 12px; opacity: 0.85; }
+#addressCancel { cursor: pointer; font-size: 14px; opacity: 0.75; color: var(--vscode-textLink-foreground); }
+#addressCancel:hover { opacity: 1; }
+#addressList { list-style: none; padding: 0; margin: 4px 0 0; max-height: 18vh; overflow-y: auto; }
+#addressList li { padding: 3px 0; border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.2)); }
+#addressList .address-head { display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
+#addressList .badge { opacity: 0.7; font-variant: small-caps; }
+#addressList .address-head a { cursor: pointer; color: var(--vscode-textLink-foreground); }
+/* Pushed to the right edge, since it is the run's outcome rather than part of the location. Shrinks
+   like the location beside it: left unshrinkable it would hold its whole width down to a panel that
+   has none left for the location, and the location is where the click goes. */
+#addressList .address-note {
+  margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  opacity: 0.7; white-space: nowrap;
+}
+/* The reply is rendered markdown, so it borrows .ask-answer; only its indent differs, there being no
+   chevron to clear. */
+#addressList .ask-answer { margin-left: 0; }
+
+/* --- rendered markdown in an answer -------------------------------------------------------- */
+.ask-answer { font-size: 13px; line-height: 1.5; margin: 4px 0 2px 18px; }
+.ask-answer p { margin: 0 0 6px; }
+.ask-answer .md-h { font-weight: 600; margin: 6px 0 3px; }
+.ask-answer ul, .ask-answer ol { margin: 0 0 6px; padding-left: 18px; }
+.ask-answer code {
+  font-family: var(--vscode-editor-font-family); font-size: 0.92em; padding: 0 3px; border-radius: 3px;
+  background: var(--vscode-textCodeBlock-background, rgba(128,128,128,0.18));
+}
+.ask-answer pre {
+  margin: 4px 0 6px; padding: 6px 8px; border-radius: 4px; overflow-x: auto;
+  background: var(--vscode-textCodeBlock-background, rgba(128,128,128,0.18));
+}
+.ask-answer pre code { padding: 0; background: none; white-space: pre; }
+.ask-answer a { cursor: pointer; color: var(--vscode-textLink-foreground); }
+.ask-answer .md-hr { margin: 6px 0; border: none; border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.3)); }
+/* The adversarial run's one status line, under the button that starts it. Empty until a run
+   reports, so it reserves no space in a panel that has never run one. */
+#advStatus { font-size: 12px; line-height: 1.5; margin: 2px 0 4px; opacity: 0.85; }
+#advStatus:empty { margin: 0; }
+#advStatus a { cursor: pointer; color: var(--vscode-textLink-foreground); }
