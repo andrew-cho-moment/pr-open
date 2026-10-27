@@ -326,6 +326,38 @@ export async function switchToPrBranch(dir: string, branch: string, remote: stri
   }
 }
 
+/** The branch `origin/HEAD` names, e.g. `main`; `main` when the clone never recorded one. */
+export async function defaultBranch(dir: string): Promise<string> {
+  try {
+    return (await runGit(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], dir)).trim().replace(/^origin\//, '');
+  } catch {
+    return 'main';
+  }
+}
+
+/**
+ * Put the tree at `dir` on `origin`'s default branch at its newest commit, and return the branch's
+ * name. Refuses a tree with tracked changes rather than carry them onto another branch.
+ *
+ * Git checks a branch out in one worktree at most, so when another tree holds it, this tree lands
+ * detached at the same commit instead.
+ */
+export async function checkoutDefaultBranch(dir: string): Promise<string> {
+  const branch = await defaultBranch(dir);
+  if ((await changesFromHead(dir)).length > 0) {
+    throw new Error(`${path.basename(dir)} has uncommitted changes. Commit or stash them before touring ${branch}.`);
+  }
+  await fetchBranch(dir, branch);
+  const remote = (await runGit(['rev-parse', '--verify', `refs/remotes/origin/${branch}`], dir)).trim();
+  const held = await worktreeHolding(dir, branch);
+  if (held && path.resolve(held) !== path.resolve(dir)) {
+    await runGit(['switch', '--detach', remote], dir);
+  } else if (!(await switchToPrBranch(dir, branch, remote))) {
+    throw new Error(`Local ${branch} has commits origin/${branch} lacks. Reconcile them before touring ${branch}.`);
+  }
+  return branch;
+}
+
 /**
  * Create a worktree at `path`, checked out at `oid` on pr-open's dedicated review branch.
  *

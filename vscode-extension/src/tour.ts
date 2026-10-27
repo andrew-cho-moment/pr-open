@@ -6,7 +6,13 @@ import { Side } from './askanchor';
 import { AskRepoSink } from './askrepo';
 import { BaseContentProvider } from './basecontent';
 import { readConfig } from './config';
-import { ChangedFile, changedFiles, fetchBranch, filesAtHead, isDirty, mergeBase, readHead, resolvePrBase, reviewDiff } from './git';
+import {
+  ChangedFile,
+  changedFiles,
+  checkoutDefaultBranch,
+  fetchBranch,
+  filesAtHead,
+  isDirty, mergeBase, readHead, resolvePrBase, reviewDiff } from './git';
 import { checkoutPr, getPrMeta, PrMeta, repoIdFor, requireClone } from './handoff';
 import { log } from './logger';
 import { userAction } from './prefetch';
@@ -125,7 +131,8 @@ export class TourController {
     return this.begin(opts.restoreIndex, (signal) => this.startInner(repo, number, opts, signal));
   }
 
-  /** Tour the whole repository checked out at `dir`, as of its HEAD commit. */
+  /** Check out the default branch at `dir` and tour the whole repository at its newest commit. A
+   *  restore tours whatever HEAD is, since it runs unprompted and must not move the tree. */
   startRepo(dir: string, restoreIndex?: number): Promise<void> {
     return this.begin(restoreIndex, (signal) => this.startRepoInner(dir, restoreIndex, signal));
   }
@@ -347,6 +354,16 @@ export class TourController {
   }
 
   private async startRepoInner(dir: string, restoreIndex: number | undefined, signal: AbortSignal): Promise<void> {
+    if (restoreIndex === undefined) {
+      const branch = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Checking out the default branch...' },
+        () => checkoutDefaultBranch(dir),
+      );
+      log(`repo tour: checked out ${branch} in ${dir}`);
+      // The tree moved: drop anchors asked against the old HEAD and refresh the status row.
+      this.askRepos.unseed(dir);
+      signal.throwIfAborted();
+    }
     const [head, id, files, dirty] = await Promise.all([
       readHead(dir),
       repoIdFor(dir),

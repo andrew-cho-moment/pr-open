@@ -227,9 +227,7 @@ function setFocus(on) {
 $('focusToggle').addEventListener('click', () => setFocus(!focusMode));
 
 let checkedOutPr = null; // { repo, number, dir } for the checked-out PR, drives the Review + Fill buttons.
-let activeDir = null; // the repo open in this window, PR or not, drives the Tour button.
 function setReviewButton() {
-  $('repoTourBtn').disabled = !activeDir;
   const btn = $('tourStartBtn');
   btn.disabled = !checkedOutPr;
   btn.textContent = checkedOutPr ? 'Review PR #' + checkedOutPr.number : 'Review checked-out PR';
@@ -250,7 +248,6 @@ function renderStatus(m) {
   const el = $('statusText');
   const s = m.item;
   checkedOutPr = s && s.pr ? { repo: s.repo, number: s.pr.number, dir: s.dir, url: s.pr.url } : null;
-  activeDir = s ? s.dir : null;
   setReviewButton();
   if (m.error) { el.textContent = m.error; return; }
   if (!s) { el.textContent = 'No repo open in this window.'; return; }
@@ -282,9 +279,6 @@ function startTour(repo, number, dir) {
 }
 $('tourStartBtn').addEventListener('click', () => {
   if (checkedOutPr) { startTour(checkedOutPr.repo, checkedOutPr.number, checkedOutPr.dir); }
-});
-$('repoTourBtn').addEventListener('click', () => {
-  if (activeDir) { vscode.postMessage({ type: 'repoTourStart', dir: activeDir }); }
 });
 $('tourNextBtn').addEventListener('click', () => vscode.postMessage({ type: 'tourNext' }));
 $('tourPrevBtn').addEventListener('click', () => vscode.postMessage({ type: 'tourPrev' }));

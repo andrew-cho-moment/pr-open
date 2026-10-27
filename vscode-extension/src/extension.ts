@@ -49,7 +49,6 @@ export function activate(context: vscode.ExtensionContext): void {
     openRepo: (action, repo, number) => run(parsePrRef(`${repo}#${number}`), action),
     prefetch: (repo, number) => prefetch(context, repo, number),
     startTour: (repo, number, dir) => void tour.start(repo, number, { dir }),
-    startRepoTour: (dir) => void tour.startRepo(dir),
     tourNav: (dir) => (dir === 'next' ? tour.next() : tour.prev()),
     tourGoto: (index) => tour.goto(index),
     tourRestore: () => tour.restore(),
