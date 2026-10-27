@@ -6,27 +6,30 @@ import { Side } from './askanchor';
 import { AskRepoSink } from './askrepo';
 import { BaseContentProvider } from './basecontent';
 import { readConfig } from './config';
-import { ChangedFile, changedFiles, fetchBranch, mergeBase, readHead, resolvePrBase, reviewDiff } from './git';
+import { ChangedFile, changedFiles, fetchBranch, filesAtHead, isDirty, mergeBase, readHead, resolvePrBase, reviewDiff } from './git';
 import { checkoutPr, getPrMeta, PrMeta, repoIdFor, requireClone } from './handoff';
 import { log } from './logger';
 import { userAction } from './prefetch';
-import { Chunk, generateWalkthroughBatches, summarizeContext } from './review';
+import { Chunk, generateRepoTour, generateWalkthroughBatches, summarizeContext } from './review';
 import { prepareReview } from './reviewbatch';
 import { cleanContextSummary } from './reviewparse';
+import { repoTourPayload } from './repotour';
 import { delay, errorMessage } from './util';
 
 /** Messages the controller pushes to the panel. Steps stream in one `tourStep` at a time; the
- * first step's `tourState` arrives as soon as it parses, and `tourStreamDone` marks the final total. */
+ * first step's `tourState` arrives as soon as it parses, and `tourStreamDone` marks the final total.
+ * `status` is the step's primary file's change in a PR review, and absent in a repo tour, where
+ * nothing changed. */
 export type TourMessage =
-  | { type: 'tourStarted'; repo: string; number: number }
+  | { type: 'tourStarted'; heading: string }
   | { type: 'tourContext'; text: string }
-  | { type: 'tourStep'; index: number; title: string; status: FileStatus }
+  | { type: 'tourStep'; index: number; title: string; status?: FileStatus }
   | {
       type: 'tourState';
       step: number;
       title: string;
       explanation: string;
-      status: FileStatus;
+      status?: FileStatus;
       locations: { file: string; startLine: number; endLine: number }[];
     }
   | { type: 'tourStreamDone' }
@@ -40,14 +43,29 @@ export interface TourView {
   postTour(msg: TourMessage): void;
 }
 
+/** What a guided tour walks through. */
+enum TourKind {
+  /** A PR's diff against its merge base: each step opens a diff. */
+  Pr = 'pr',
+  /** The whole repository at HEAD: each step opens the file itself. */
+  Repo = 'repo',
+}
+
+interface PrSubject {
+  kind: TourKind.Pr;
+  number: number;
+  base: string;
+  byPath: Map<string, ChangedFile>;
+}
+
+type TourSubject = PrSubject | { kind: TourKind.Repo };
+
 interface ActiveTour {
   repo: string;
   cloneDir: string;
-  number: number;
-  base: string;
   headOid: string;
+  subject: TourSubject;
   chunks: Chunk[];
-  byPath: Map<string, ChangedFile>;
   index: number;
 }
 
@@ -63,18 +81,16 @@ interface StartOptions {
 /** The saved-session descriptor, stored in `workspaceState` so a reopened panel restores the
  * review from the per-HEAD chunk cache instead of re-running Claude. Per-window: it points at a
  * clone checked out in this window. */
-interface SavedTour {
-  repo: string;
-  number: number;
-  dir?: string;
-  index: number;
-}
+type SavedTour =
+  | { kind: TourKind.Pr; repo: string; number: number; dir?: string; index: number }
+  | { kind: TourKind.Repo; dir: string; index: number };
 
 interface CachedReview {
   chunks: Chunk[];
 }
 
-const SAVED_KEY = 'prOpen.activeTour';
+// `activeTour2` tags each session with its kind; an untagged `activeTour` session is simply dropped.
+const SAVED_KEY = 'prOpen.activeTour2';
 
 const DECORATION = vscode.window.createTextEditorDecorationType({
   backgroundColor: new vscode.ThemeColor('editor.findMatchHighlightBackground'),
@@ -105,7 +121,17 @@ export class TourController {
     this.reviewChanged.dispose();
   }
 
-  async start(repo: string, number: number, opts: StartOptions = {}): Promise<void> {
+  start(repo: string, number: number, opts: StartOptions = {}): Promise<void> {
+    return this.begin(opts.restoreIndex, (signal) => this.startInner(repo, number, opts, signal));
+  }
+
+  /** Tour the whole repository checked out at `dir`, as of its HEAD commit. */
+  startRepo(dir: string, restoreIndex?: number): Promise<void> {
+    return this.begin(restoreIndex, (signal) => this.startRepoInner(dir, restoreIndex, signal));
+  }
+
+  /** Replace whatever tour is running with the one `run` sets up, and report how it ends. */
+  private async begin(restoreIndex: number | undefined, run: (signal: AbortSignal) => Promise<void>): Promise<void> {
     this.generation?.abort();
     const generation = new AbortController();
     this.generation = generation;
@@ -114,12 +140,12 @@ export class TourController {
       this.view.postTour({ type: 'tourEnded' });
     }
     try {
-      await this.startInner(repo, number, opts, generation.signal);
+      await run(generation.signal);
     } catch (e) {
       if (this.generation !== generation) {
         return;
       }
-      if (opts.restoreIndex !== undefined) {
+      if (restoreIndex !== undefined) {
         // A restore runs unprompted when the panel reopens; fail quietly and forget the session.
         log(`tour: restore failed, clearing saved session: ${errorMessage(e)}`);
         this.clearTour();
@@ -138,11 +164,13 @@ export class TourController {
       return;
     }
     const saved = this.context.workspaceState.get<SavedTour>(SAVED_KEY);
-    if (saved) {
-      void this.start(saved.repo, saved.number, {
-        dir: saved.dir,
-        restoreIndex: saved.index,
-      });
+    switch (saved?.kind) {
+      case TourKind.Pr:
+        void this.start(saved.repo, saved.number, { dir: saved.dir, restoreIndex: saved.index });
+        break;
+      case TourKind.Repo:
+        void this.startRepo(saved.dir, saved.index);
+        break;
     }
   }
 
@@ -152,8 +180,9 @@ export class TourController {
   prev(): void {
     this.goto((this.tour?.index ?? 0) - 1);
   }
+  /** A step that fails to open is reported as partial, so the panel keeps the steps it has. */
   goto(index: number): void {
-    void this.show(index).catch((e) => this.report(e));
+    void this.show(index).catch((e) => this.report(e, true));
   }
 
   private report(e: unknown, partial = false): void {
@@ -170,14 +199,15 @@ export class TourController {
   /** Drop the active review state. Returns whether a review was present, so replacement can avoid
    * posting an extra end event while the panel is already idle. */
   private clearTour(): boolean {
-    const active = this.tour !== undefined;
+    const cleared = this.tour;
     this.tour = undefined;
     this.base.clear();
     this.clearSaved();
-    if (active) {
+    // Only a PR review owns the ask transcript; a repo tour starting or ending leaves it alone.
+    if (cleared?.subject.kind === TourKind.Pr) {
       this.reviewChanged.fire({ active: false });
     }
-    return active;
+    return cleared !== undefined;
   }
 
   /** Persist the current step so a reopened panel lands back here without re-running Claude. */
@@ -186,12 +216,10 @@ export class TourController {
     if (!t) {
       return;
     }
-    const saved: SavedTour = {
-      repo: t.repo,
-      number: t.number,
-      dir: t.cloneDir,
-      index: t.index,
-    };
+    const saved: SavedTour =
+      t.subject.kind === TourKind.Pr
+        ? { kind: TourKind.Pr, repo: t.repo, number: t.subject.number, dir: t.cloneDir, index: t.index }
+        : { kind: TourKind.Repo, dir: t.cloneDir, index: t.index };
     void this.context.workspaceState.update(SAVED_KEY, saved);
   }
 
@@ -203,13 +231,21 @@ export class TourController {
    *  `side` is 'base' when the lines were read from the diff's left pane, which is where they must
    *  be highlighted — the same numbers mean different code on the right. */
   async openLocation(file: string, startLine: number, endLine: number, side: Side = 'head'): Promise<void> {
-    if (!this.tour) {
+    const tour = this.tour;
+    if (!tour) {
       return;
     }
-    const cf = this.tour.byPath.get(file);
-    const status: FileStatus = cf ? (cf.binary ? 'binary' : cf.status) : 'M';
     try {
-      await this.openDiff(this.tour, cf, { file, startLine, endLine }, status, side);
+      if (tour.subject.kind === TourKind.Repo) {
+        // Base-side lines come from an ask about a PR diff's left pane: they number code HEAD lacks.
+        if (side === 'head') {
+          await this.openFile(tour, { file, startLine, endLine });
+        }
+        return;
+      }
+      const cf = tour.subject.byPath.get(file);
+      const status: FileStatus = cf ? (cf.binary ? 'binary' : cf.status) : 'M';
+      await this.openDiff(tour, tour.subject, cf, { file, startLine, endLine }, status, side);
     } catch (e) {
       this.report(e);
     }
@@ -266,18 +302,17 @@ export class TourController {
     // Set the tour shell up before generating so streamed chunks render as they parse. Held in a
     // local as well, and carried through generation: every later step is about *this* review, so a
     // second `start` overwriting the field cannot make the first one's chunks land in the second's.
+    const subject: PrSubject = { kind: TourKind.Pr, number, base, byPath };
     const tour: ActiveTour = {
       repo,
       cloneDir,
-      number,
-      base,
       headOid: head.oid,
+      subject,
       chunks: [],
-      byPath,
       index: 0,
     };
     this.tour = tour;
-    this.view.postTour({ type: 'tourStarted', repo, number });
+    this.view.postTour({ type: 'tourStarted', heading: `${repo} [PR #${number}]` });
     // Hand the resolved tree over before any diff opens, so asking works on step 1 with no `gh`
     // round-trip of its own. `active: true` also clears questions from a previous review. Skipped
     // with no GitHub owner, which asking cannot resolve a PR without either; the walkthrough reads
@@ -307,14 +342,72 @@ export class TourController {
     if (cfg.includeBusinessContext) {
       void this.loadContext(tour, meta, model, signal);
     }
-    await this.loadChunks(tour, model, signal);
+    await this.loadChunks(tour, subject, model, signal);
+    await this.finish(tour, restoreIndex);
+  }
+
+  private async startRepoInner(dir: string, restoreIndex: number | undefined, signal: AbortSignal): Promise<void> {
+    const [head, id, files, dirty] = await Promise.all([
+      readHead(dir),
+      repoIdFor(dir),
+      filesAtHead(dir),
+      isDirty(dir),
+    ]);
+    signal.throwIfAborted();
+    const repo = id?.repo ?? path.basename(dir);
+    const tour: ActiveTour = {
+      repo,
+      cloneDir: dir,
+      headOid: head.oid,
+      subject: { kind: TourKind.Repo },
+      chunks: [],
+      index: 0,
+    };
+    this.tour = tour;
+    this.view.postTour({ type: 'tourStarted', heading: `${repo} [${head.branch ?? head.oid.slice(0, 7)}]` });
+
+    const model = readConfig().reviewModel;
+    // Keyed on HEAD like a PR review: the tour describes committed code, so new commits re-tour.
+    const key = `prOpen.repoTour1:${dir}|${head.oid}|${model ?? ''}`;
+    if (!this.replayCached(tour, key, signal)) {
+      if (restoreIndex !== undefined) {
+        // HEAD moved since the saved tour. A restore runs unprompted, so it never starts a run.
+        this.clearTour();
+        this.view.postTour({ type: 'tourEnded' });
+        return;
+      }
+      this.view.postTour({ type: 'tourProgress', message: 'Exploring the repository with Claude...' });
+      const promptPath = path.join(this.context.extensionUri.fsPath, 'prompt-repo-tour.md');
+      const chunks = await generateRepoTour(
+        dir,
+        repoTourPayload(repo, files),
+        promptPath,
+        model,
+        new Set(files),
+        (chunk) => this.addChunk(tour, chunk),
+        (label) => {
+          if (this.tour === tour) {
+            this.view.postTour({ type: 'tourProgress', message: `${label}...` });
+          }
+        },
+        signal,
+      );
+      signal.throwIfAborted();
+      // The model reads the working tree, so a tour of uncommitted edits would mis-anchor HEAD's.
+      if (!dirty) {
+        await this.context.globalState.update(key, { chunks } satisfies CachedReview);
+      }
+    }
+    await this.finish(tour, restoreIndex);
+  }
+
+  /** Mark a tour's steps complete, and land a restored one back on its saved step. */
+  private async finish(tour: ActiveTour, restoreIndex: number | undefined): Promise<void> {
     if (this.tour !== tour) {
       return; // ended, or superseded by a later review, while this one was generating
     }
     this.view.postTour({ type: 'tourStreamDone' });
-
-    // Restoring replays cached chunks synchronously; land back on the saved step.
-    if (restoring && restoreIndex < tour.chunks.length) {
+    if (restoreIndex !== undefined && restoreIndex < tour.chunks.length) {
       await this.show(restoreIndex);
     }
   }
@@ -329,7 +422,7 @@ export class TourController {
     const sourceHash = createHash('sha256').update(meta.title).update('\0').update(meta.body).digest('hex');
     // `reviewContext3` holds the summary as the model wrote it; the `2` ones were clamped to two
     // sentences, which cut them off at their first abbreviation.
-    const key = `prOpen.reviewContext3:${tour.cloneDir}|${tour.number}|${sourceHash}|${model ?? ''}`;
+    const key = `prOpen.reviewContext3:${tour.cloneDir}|${meta.number}|${sourceHash}|${model ?? ''}`;
     try {
       let summary = this.context.globalState.get<string>(key);
       if (summary === undefined) {
@@ -369,7 +462,7 @@ export class TourController {
     }
     const index = tour.chunks.length;
     tour.chunks.push(chunk);
-    this.view.postTour({ type: 'tourStep', index, title: chunk.title, status: statusFor(tour.byPath, chunk) });
+    this.view.postTour({ type: 'tourStep', index, title: chunk.title, status: statusFor(tour.subject, chunk) });
     if (index === 0) {
       this.goto(0);
     }
@@ -391,24 +484,25 @@ export class TourController {
     return base;
   }
 
-  private async loadChunks(tour: ActiveTour, model: string | undefined, signal: AbortSignal): Promise<void> {
-    const { cloneDir: dir, number, base, headOid: head } = tour;
+  private async loadChunks(
+    tour: ActiveTour,
+    subject: PrSubject,
+    model: string | undefined,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const { cloneDir: dir, headOid: head } = tour;
+    const { number, base } = subject;
     // Key on the local HEAD, since that (not the remote PR head) is the tree being diffed.
     // `review3` excludes generated artifacts from the reviewed diff; older chunks did not.
     const key = `prOpen.review3:${dir}|${number}|${head}|${model ?? ''}`;
-    const cached = this.context.globalState.get<CachedReview>(key);
-    if (cached) {
-      for (const c of cached.chunks) {
-        signal.throwIfAborted();
-        this.addChunk(tour, c);
-      }
+    if (this.replayCached(tour, key, signal)) {
       return;
     }
     const completed = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: `Analyzing PR #${number} with Claude...`, cancellable: false },
       async () => {
         this.view.postTour({ type: 'tourProgress', message: 'Classifying the diff...' });
-        const prepared = prepareReview(await reviewDiff(dir, base, [...tour.byPath.values()]));
+        const prepared = prepareReview(await reviewDiff(dir, base, [...subject.byPath.values()]));
         signal.throwIfAborted();
         const s = prepared.scope;
         log(
@@ -434,6 +528,19 @@ export class TourController {
     await this.context.globalState.update(key, completed);
   }
 
+  /** Stream the steps cached under `key` into `tour`; false on a miss. */
+  private replayCached(tour: ActiveTour, key: string, signal: AbortSignal): boolean {
+    const cached = this.context.globalState.get<CachedReview>(key);
+    if (!cached) {
+      return false;
+    }
+    for (const c of cached.chunks) {
+      signal.throwIfAborted();
+      this.addChunk(tour, c);
+    }
+    return true;
+  }
+
   private async show(index: number): Promise<void> {
     const tour = this.tour;
     if (!tour || index < 0 || index >= tour.chunks.length) {
@@ -443,8 +550,7 @@ export class TourController {
     this.save();
     const chunk = tour.chunks[index];
     const loc = chunk.locations[0];
-    const cf = tour.byPath.get(loc.file);
-    const status = statusFor(tour.byPath, chunk);
+    const status = statusFor(tour.subject, chunk);
 
     this.view.postTour({
       type: 'tourState',
@@ -455,11 +561,25 @@ export class TourController {
       locations: chunk.locations.map((l) => ({ file: l.file, startLine: l.startLine, endLine: l.endLine })),
     });
 
-    await this.openDiff(tour, cf, loc, status);
+    if (tour.subject.kind === TourKind.Repo) {
+      await this.openFile(tour, loc);
+    } else {
+      await this.openDiff(tour, tour.subject, tour.subject.byPath.get(loc.file), loc, status ?? 'M');
+    }
+  }
+
+  /** Open a repo tour's file on disk, so go-to-definition works, and highlight the step's lines. */
+  private async openFile(tour: ActiveTour, loc: { file: string; startLine: number; endLine: number }): Promise<void> {
+    const editor = await vscode.window.showTextDocument(vscode.Uri.file(path.join(tour.cloneDir, loc.file)), {
+      preview: true,
+    });
+    reveal(editor, loc.startLine, loc.endLine);
+    editor.setDecorations(DECORATION, [lineRange(editor, loc.startLine, loc.endLine)]);
   }
 
   private async openDiff(
     tour: ActiveTour,
+    subject: PrSubject,
     cf: ChangedFile | undefined,
     loc: { file: string; startLine: number; endLine: number },
     status: FileStatus,
@@ -470,7 +590,7 @@ export class TourController {
     }
 
     const leftPath = cf?.oldPath ?? loc.file;
-    const left = BaseContentProvider.uriFor(tour.cloneDir, tour.base, leftPath);
+    const left = BaseContentProvider.uriFor(tour.cloneDir, subject.base, leftPath);
     const right =
       status === 'D'
         ? BaseContentProvider.uriFor(tour.cloneDir, tour.headOid, loc.file) // gone at HEAD => empty
@@ -504,9 +624,13 @@ async function findDiffEditor(uri: vscode.Uri): Promise<vscode.TextEditor | unde
   return undefined;
 }
 
-/** Status of a chunk's primary file, or 'M' when the model referenced an unknown path. */
-function statusFor(byPath: Map<string, ChangedFile>, chunk: Chunk): FileStatus {
-  const cf = byPath.get(chunk.locations[0].file);
+/** Status of a PR chunk's primary file, or 'M' when the model referenced an unknown path. Undefined
+ *  in a repo tour, where nothing changed. */
+function statusFor(subject: TourSubject, chunk: Chunk): FileStatus | undefined {
+  if (subject.kind === TourKind.Repo) {
+    return undefined;
+  }
+  const cf = subject.byPath.get(chunk.locations[0].file);
   if (!cf) {
     return 'M';
   }

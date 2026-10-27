@@ -177,6 +177,20 @@ const BRANCH_REF_PREFIX = 'refs/heads/';
  * unambiguous, so a branch whose name a tag also carries reads back as `heads/v1`, which matches no
  * PR head ref.
  */
+/** Every file HEAD tracks: what a repo tour may anchor on. HEAD's tree rather than the index, since
+ *  the tour is cached per HEAD. Blobs only, since a submodule's entry is a directory no editor opens. */
+export async function filesAtHead(dir: string): Promise<string[]> {
+  return parseLsTreeBlobs(await runGit(['ls-tree', '-r', '-z', 'HEAD'], dir));
+}
+
+/** The blob paths in `ls-tree -z` output, whose entries read `<mode> <type> <oid>\t<path>`. */
+export function parseLsTreeBlobs(out: string): string[] {
+  return nulSplit(out).flatMap((entry) => {
+    const tab = entry.indexOf('\t');
+    return entry.slice(0, tab).split(' ')[1] === 'blob' ? [entry.slice(tab + 1)] : [];
+  });
+}
+
 export async function readHead(dir: string): Promise<Head> {
   const out = await runGit(['rev-parse', 'HEAD', '--symbolic-full-name', 'HEAD'], dir);
   return parseHead(out);

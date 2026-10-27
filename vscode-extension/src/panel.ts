@@ -24,6 +24,8 @@ export interface PanelHandlers {
   /** Warm what a click on this repo's PR would otherwise pay for. */
   prefetch(repo: string, number: number): void;
   startTour(repo: string, number: number, dir?: string): void;
+  /** Tour the whole repository checked out at `dir`. */
+  startRepoTour(dir: string): void;
   tourNav(dir: 'next' | 'prev'): void;
   tourGoto(index: number): void;
   tourRestore(): void;
@@ -58,6 +60,7 @@ type Inbound =
   | { type: 'openRepo'; action: PrAction; repo: string; number: string }
   | { type: 'prefetch'; repo: string; number: number }
   | { type: 'tourStart'; repo: string; number: number; dir?: string }
+  | { type: 'repoTourStart'; dir: string }
   | { type: 'tourNext' }
   | { type: 'tourPrev' }
   | { type: 'tourGoto'; index: number }
@@ -210,6 +213,9 @@ export class PanelProvider implements vscode.WebviewViewProvider {
           break;
         case 'tourStart':
           this.handlers.startTour(msg.repo, msg.number, msg.dir);
+          break;
+        case 'repoTourStart':
+          this.handlers.startRepoTour(msg.dir);
           break;
         case 'tourNext':
           this.handlers.tourNav('next');
@@ -482,6 +488,10 @@ export class PanelProvider implements vscode.WebviewViewProvider {
     </div>
     <div id="tourIdle">
       <div class="actions"><button id="tourStartBtn" disabled>Review checked-out PR</button></div>
+      <div class="actions">
+        <button class="secondary" id="repoTourBtn" disabled
+                title="Walk through the whole repository open in this window, as of its HEAD commit">Tour this repo</button>
+      </div>
     </div>
     <div id="tourActive" style="display:none;">
       <div id="tourContext" style="display:none;">

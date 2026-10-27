@@ -133,6 +133,11 @@
         "category": "PR Open"
       },
       {
+        "command": "prOpen.startRepoTour",
+        "title": "PR Open: Start Guided Tour of This Repo",
+        "category": "PR Open"
+      },
+      {
         "command": "prOpen.ask.selection",
         "title": "PR Open: Ask Claude About These Lines",
         "category": "PR Open"
