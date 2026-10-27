@@ -177,6 +177,20 @@ const BRANCH_REF_PREFIX = 'refs/heads/';
  * unambiguous, so a branch whose name a tag also carries reads back as `heads/v1`, which matches no
  * PR head ref.
  */
+/** Every file HEAD tracks: what a repo tour may anchor on. HEAD's tree rather than the index, since
+ *  the tour is cached per HEAD. Blobs only, since a submodule's entry is a directory no editor opens. */
+export async function filesAtHead(dir: string): Promise<string[]> {
+  return parseLsTreeBlobs(await runGit(['ls-tree', '-r', '-z', 'HEAD'], dir));
+}
+
+/** The blob paths in `ls-tree -z` output, whose entries read `<mode> <type> <oid>\t<path>`. */
+export function parseLsTreeBlobs(out: string): string[] {
+  return nulSplit(out).flatMap((entry) => {
+    const tab = entry.indexOf('\t');
+    return entry.slice(0, tab).split(' ')[1] === 'blob' ? [entry.slice(tab + 1)] : [];
+  });
+}
+
 export async function readHead(dir: string): Promise<Head> {
   const out = await runGit(['rev-parse', 'HEAD', '--symbolic-full-name', 'HEAD'], dir);
   return parseHead(out);
@@ -310,6 +324,38 @@ export async function switchToPrBranch(dir: string, branch: string, remote: stri
     case 'diverged':
       return false;
   }
+}
+
+/** The branch `origin/HEAD` names, e.g. `main`; `main` when the clone never recorded one. */
+export async function defaultBranch(dir: string): Promise<string> {
+  try {
+    return (await runGit(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], dir)).trim().replace(/^origin\//, '');
+  } catch {
+    return 'main';
+  }
+}
+
+/**
+ * Put the tree at `dir` on `origin`'s default branch at its newest commit, and return the branch's
+ * name. Refuses a tree with tracked changes rather than carry them onto another branch.
+ *
+ * Git checks a branch out in one worktree at most, so when another tree holds it, this tree lands
+ * detached at the same commit instead.
+ */
+export async function checkoutDefaultBranch(dir: string): Promise<string> {
+  const branch = await defaultBranch(dir);
+  if ((await changesFromHead(dir)).length > 0) {
+    throw new Error(`${path.basename(dir)} has uncommitted changes. Commit or stash them before touring ${branch}.`);
+  }
+  await fetchBranch(dir, branch);
+  const remote = (await runGit(['rev-parse', '--verify', `refs/remotes/origin/${branch}`], dir)).trim();
+  const held = await worktreeHolding(dir, branch);
+  if (held && path.resolve(held) !== path.resolve(dir)) {
+    await runGit(['switch', '--detach', remote], dir);
+  } else if (!(await switchToPrBranch(dir, branch, remote))) {
+    throw new Error(`Local ${branch} has commits origin/${branch} lacks. Reconcile them before touring ${branch}.`);
+  }
+  return branch;
 }
 
 /**

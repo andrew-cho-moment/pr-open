@@ -25,6 +25,13 @@ AI guided PR reviews natively within VSCode.
   why. Generated, vendored and binary artifacts become a compact collateral manifest; source diffs
   are split into bounded batches when needed. Cached per HEAD; **Regenerate with more context**
   reruns with richer explanations.
+- **Repo tour:** the same walkthrough for a whole repository instead of a PR. The book icon left of
+  the refresh button in the panel's title bar checks out the default branch (usually `main`) at
+  `origin`'s newest commit, then gives Claude read-only access to the repo open in the window, and
+  it streams ordered steps from the README and entry points through the data model,
+  main flows, tests and deploy. Each step opens the file itself, not a diff, with its lines
+  highlighted. A tree with uncommitted changes is refused rather than switched; when another
+  worktree holds `main`, the tour lands detached at the same commit. Cached per HEAD commit.
 - **Ask Claude:** the panel's collapsible **Ask Claude** box is one continuous conversation about the
   checked-out PR. The first question carries the whole diff, every later one resumes that session, so
   the diff is paid for once however long you go. Selecting lines in a diff narrows the next question
@@ -75,8 +82,8 @@ Then set your search roots in Settings:
 "prOpen.adversarialReview.instructionsSection": "Communication", // section of ~/.claude/CLAUDE.md a finding is worded from
 "prOpen.checkForUpdatesOnStartup": true           // check GitHub for a newer release once a day on startup (defaults to true)
 ```
-The system prompts (`vscode-extension/prompt-review.md`, `prompt-context.md`, `prompt-ask.md`,
-`prompt-address.md`, and `prompt-adversarial.md`) are plain Markdown and meant to be edited; reload
+The system prompts (`vscode-extension/prompt-review.md`, `prompt-repo-tour.md`, `prompt-context.md`,
+`prompt-ask.md`, `prompt-address.md`, and `prompt-adversarial.md`) are plain Markdown and meant to be edited; reload
 the window to pick up changes.
 
 The adversarial review is the one run that reads your own `~/.claude/CLAUDE.md`. A claude subprocess
@@ -98,6 +105,8 @@ description, since "why does this exist" is unanswerable without them.
 Click the PR Open icon in the activity bar, then paste a PR URL or pick a repo + number. Each
 entry has **PR page**, **Diff**, and **Checkout** actions. Start a guided review from the panel or
 the command palette (`PR Open: Start Guided Review`); the PR's branch must be checked out first.
+To learn a repository rather than a change, click the book icon in the panel's title bar; it uses `prOpen.review.model`
+and takes a minute or so before the first step, while Claude reads the code.
 
 **Adversarial review** reads the checked-out PR for correctness, design and style, and files each
 finding as an inline comment on a *pending* GitHub review: a draft only you can see, which reaches

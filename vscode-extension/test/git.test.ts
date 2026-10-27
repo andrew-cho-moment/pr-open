@@ -10,6 +10,7 @@ import {
   changesFromHead,
   isDirty,
   moveReviewBranch,
+  parseLsTreeBlobs,
   parsePrunable,
   parseWorktreePath,
   planBranchMove,
@@ -666,4 +667,9 @@ test('planBranchMove: a local branch the head contains fast-forwards', async () 
 
 test('planBranchMove: a local branch with commits the head lacks has diverged', async () => {
   assert.equal(await planBranchMove('aaa', 'bbb', contains(false)), 'diverged');
+});
+
+test('parseLsTreeBlobs: keeps blob paths, including ones with spaces, and drops submodules', () => {
+  const out = ['100644 blob aaa\tREADME.md', '160000 commit bbb\tvendor/sub', '100755 blob ccc\tbin/run me.sh', ''].join('\0');
+  assert.deepEqual(parseLsTreeBlobs(out), ['README.md', 'bin/run me.sh']);
 });

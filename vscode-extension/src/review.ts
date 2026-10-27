@@ -71,6 +71,57 @@ export async function generateWalkthrough(
   return chunks;
 }
 
+/**
+ * Tour a whole repository. Unlike a PR walkthrough, no input can hold the code, so the model reads
+ * the tree itself with read-only tools from `dir` and streams a step whenever it has one. Steps
+ * anchored only outside `trackedFiles` are dropped, as `generateWalkthrough` drops invented paths.
+ * `onTool` names each read, so a reader waiting on the first step sees what is being explored.
+ */
+export async function generateRepoTour(
+  dir: string,
+  input: string,
+  promptPath: string,
+  model: string | undefined,
+  trackedFiles: ReadonlySet<string>,
+  onChunk: (chunk: Chunk) => void,
+  onTool: (label: string) => void,
+  signal: AbortSignal,
+): Promise<Chunk[]> {
+  signal.throwIfAborted();
+  const args = await claudeStreamArgs({
+    model,
+    // Appended, not replaced: the default prompt is what teaches the model its tools.
+    systemPrompt: { mode: ClaudeSystemPrompt.Append, text: (await readFile(promptPath, 'utf8')).trim() },
+    tools: 'read-only',
+    persistence: ClaudeSessionPersistence.Ephemeral,
+  });
+  const chunks: Chunk[] = [];
+  log(`repo tour: claude --model ${model ?? DEFAULT_MODEL} in ${dir}, input ${Buffer.byteLength(input)} bytes`);
+  await streamClaudeJsonl({
+    args,
+    input,
+    cwd: dir,
+    signal,
+    label: 'repo tour',
+    onObject: (obj) => {
+      const parsed = validateChunk(obj);
+      const chunk = parsed && restrictChunkFiles(parsed, trackedFiles);
+      if (chunk) {
+        chunks.push(chunk);
+        onChunk(chunk);
+      }
+    },
+    accepted: () => chunks.length,
+    emptyMessage: 'Claude did not return any tour steps',
+    onEvent: (e) => {
+      if (e.kind === 'tool') {
+        onTool(e.label);
+      }
+    },
+  });
+  return chunks;
+}
+
 /** Run bounded inputs in order and suppress exact duplicates across independent Claude sessions. */
 export function generateWalkthroughBatches(
   batches: readonly ReviewBatch[],

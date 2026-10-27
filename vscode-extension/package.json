@@ -112,7 +112,7 @@
       },
       {
         "command": "prOpen.rescanRepos",
-        "title": "Rescan local clones",
+        "title": "Refresh the repo list (rescan local clones)",
         "category": "PR Open",
         "icon": "$(refresh)"
       },
@@ -131,6 +131,12 @@
         "command": "prOpen.startReview",
         "title": "PR Open: Start Guided Review",
         "category": "PR Open"
+      },
+      {
+        "command": "prOpen.startRepoTour",
+        "title": "Tour this repo (checks out the default branch first)",
+        "category": "PR Open",
+        "icon": "$(book)"
       },
       {
         "command": "prOpen.ask.selection",
@@ -214,14 +220,19 @@
       ],
       "view/title": [
         {
-          "command": "prOpen.rescanRepos",
+          "command": "prOpen.startRepoTour",
           "when": "view == prOpen.panel",
           "group": "navigation@0"
         },
         {
-          "command": "prOpen.openSettings",
+          "command": "prOpen.rescanRepos",
           "when": "view == prOpen.panel",
           "group": "navigation@1"
+        },
+        {
+          "command": "prOpen.openSettings",
+          "when": "view == prOpen.panel",
+          "group": "navigation@2"
         }
       ],
       "commandPalette": [

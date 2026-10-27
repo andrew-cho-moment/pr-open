@@ -15,7 +15,7 @@ import { traced } from './timing';
 import { TourController } from './tour';
 import { maybeCheckOnStartup } from './update';
 import { errorMessage } from './util';
-import { onDidChangeActiveFolder, trackActiveFolder, trimAddedFolders } from './workspace';
+import { activeDir, onDidChangeActiveFolder, trackActiveFolder, trimAddedFolders } from './workspace';
 
 export function activate(context: vscode.ExtensionContext): void {
   validateConfig();
@@ -118,6 +118,15 @@ export function activate(context: vscode.ExtensionContext): void {
       const picked = await promptRepoAndNumber();
       if (picked) {
         void tour.start(picked.repo, picked.number);
+      }
+    }),
+
+    vscode.commands.registerCommand('prOpen.startRepoTour', () => {
+      const dir = activeDir();
+      if (dir) {
+        void tour.startRepo(dir);
+      } else {
+        void vscode.window.showWarningMessage('Open a repository folder to tour it.');
       }
     }),
 

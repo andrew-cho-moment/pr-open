@@ -315,9 +315,9 @@ function refreshHeader() {
     $('tourNextBtn').disabled = true;
     return;
   }
-  const badge = '[' + (STATUS[currentStatus] || currentStatus || '...') + ']';
-  $('tourStep').innerHTML =
-    '<span class="badge">' + badge + '</span> Step ' + (tourStepIdx + 1) + '/' + tourTotal + (tourStreaming ? '…' : '');
+  // A repo tour's steps carry no status: nothing in them changed.
+  const badge = currentStatus ? '<span class="badge">[' + (STATUS[currentStatus] || currentStatus) + ']</span> ' : '';
+  $('tourStep').innerHTML = badge + 'Step ' + (tourStepIdx + 1) + '/' + tourTotal + (tourStreaming ? '…' : '');
   $('tourPrevBtn').disabled = tourStepIdx <= 0;
   $('tourNextBtn').disabled = tourStepIdx >= tourTotal - 1;
 }
@@ -328,7 +328,7 @@ function appendTourStep(index, title, status) {
   li.dataset.index = String(index);
   const badge = document.createElement('span');
   badge.className = 'badge';
-  badge.textContent = (index + 1) + '. [' + (status === 'binary' ? 'bin' : status) + ']';
+  badge.textContent = (index + 1) + '.' + (status ? ' [' + (status === 'binary' ? 'bin' : status) + ']' : '');
   li.appendChild(badge);
   li.appendChild(document.createTextNode(title));
   li.addEventListener('click', () => vscode.postMessage({ type: 'tourGoto', index }));
@@ -360,7 +360,7 @@ $('tourContextToggle').addEventListener('click', () => { contextOpen = !contextO
 function renderTourState(m) {
   showTourActive(true);
   tourStepIdx = m.step;
-  currentStatus = m.status;
+  currentStatus = m.status || '';
   $('tourTitle').textContent = m.title;
   $('tourExpl').textContent = m.explanation;
   const locs = $('tourLocs');
@@ -793,7 +793,7 @@ window.addEventListener('message', (e) => {
   if (m.type === 'tourStarted') {
     tourErr.textContent = '';
     tourIncomplete = '';
-    $('tourHeading').textContent = m.repo + ' [PR #' + m.number + ']';
+    $('tourHeading').textContent = m.heading;
     tourTotal = 0; tourStreaming = true; tourStepIdx = 0; currentStatus = '';
     showTourActive(true);
     $('tourSteps').innerHTML = '';
@@ -852,7 +852,7 @@ window.addEventListener('message', (e) => {
   if (m.type === 'tourError') {
     if (m.partial) {
       tourStreaming = false;
-      tourIncomplete = 'Incomplete review: ' + m.message;
+      tourIncomplete = 'Incomplete: ' + m.message;
       tourErr.textContent = tourIncomplete;
       refreshHeader();
     } else {
