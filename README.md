@@ -28,8 +28,12 @@ AI guided PR reviews natively within VSCode.
 - **Repo tour:** the same walkthrough for a whole repository instead of a PR. The book icon left of
   the refresh button in the panel's title bar checks out the default branch (usually `main`) at
   `origin`'s newest commit, then gives Claude read-only access to the repo open in the window, and
-  it streams ordered steps from the README and entry points through the data model,
-  main flows, tests and deploy. Each step opens the file itself, not a diff, with its lines
+  it streams 25 to 45 ordered steps from the README and entry points through the data model,
+  main flows, cross-cutting machinery and tests to the repository's configuration: build and
+  toolchain, lint and hooks, CI/CD, runtime settings, containers and infrastructure, and ownership
+  and agent instruction files. The input lists every configuration file HEAD tracks so none is
+  skipped. Each step explains what the code does, how it works, how it connects, and what to watch
+  when changing it. Each step opens the file itself, not a diff, with its lines
   highlighted. A tree with uncommitted changes is refused rather than switched; when another
   worktree holds `main`, the tour lands detached at the same commit. Cached per HEAD commit.
 - **Ask Claude:** the panel's collapsible **Ask Claude** box is one continuous conversation about the
