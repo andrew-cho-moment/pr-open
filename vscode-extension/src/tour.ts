@@ -385,7 +385,7 @@ export class TourController {
 
     const model = readConfig().reviewModel;
     // Keyed on HEAD like a PR review: the tour describes committed code, so new commits re-tour.
-    const key = `prOpen.repoTour1:${dir}|${head.oid}|${model ?? ''}`;
+    const key = `prOpen.repoTour2:${dir}|${head.oid}|${model ?? ''}`;
     if (!this.replayCached(tour, key, signal)) {
       if (restoreIndex !== undefined) {
         // HEAD moved since the saved tour. A restore runs unprompted, so it never starts a run.
